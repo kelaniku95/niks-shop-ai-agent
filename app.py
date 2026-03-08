@@ -82,7 +82,7 @@ def get_ai_reply(user_message):
             "Content-Type": "application/json"
         }
         payload = {
-            "model": "llama3-8b-8192",
+            "model": "llama3-70b-8192",
             "messages": [
                 {"role": "system", "content": SHOP_INFO},
                 {"role": "user", "content": user_message}
