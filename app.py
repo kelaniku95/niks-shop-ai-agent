@@ -97,7 +97,10 @@ def get_ai_reply(user_message):
             timeout=30
         )
         result = response.json()
-        return result["choices"][0]["message"]["content"]
+        reply = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if reply:
+            return reply
+        raise Exception("Empty response")
     except Exception as e:
         print(f"AI error: {e}")
         return "Thanks for reaching out to Coding With Smile! We offer IT courses like Python, HTML/CSS/JS, C, C++, PHP, .NET, SQL & Oracle. Duration: 2-3 months. FREE demo available! Contact: 97144 65982"
