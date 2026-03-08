@@ -109,7 +109,7 @@ Gujarati: "નમસ્તે! Coding With Smile માં આપનું સ�
 
 # Initialize Gemini AI
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-pro')
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 # ============================================================
 # HELPER FUNCTIONS
@@ -253,5 +253,5 @@ def home():
 # RUN APP
 # ============================================================
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
