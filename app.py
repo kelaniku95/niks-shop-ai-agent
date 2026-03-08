@@ -1,18 +1,16 @@
 import os
-import hmac
-import hashlib
 import json
 import requests
 from flask import Flask, request, jsonify
-import google.generativeai as genai
+from google import genai
 from datetime import datetime
 
 app = Flask(__name__)
 
 # ============================================================
-# CONFIGURATION - Fill these in with your actual values
+# CONFIGURATION
 # ============================================================
-VERIFY_TOKEN = "niksshop_verify_token_2024"  # You can change this
+VERIFY_TOKEN = "niksshop_verify_token_2024"
 INSTAGRAM_ACCESS_TOKEN = os.environ.get("INSTAGRAM_ACCESS_TOKEN", "YOUR_ACCESS_TOKEN")
 APP_SECRET = os.environ.get("APP_SECRET", "YOUR_APP_SECRET")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY")
@@ -27,7 +25,7 @@ You are a helpful assistant for CODING WITH SMILE, an IT Training Center & Compu
 IMPORTANT LANGUAGE RULE:
 - Detect the language the customer is writing in
 - If they write in Gujarati → reply in Gujarati
-- If they write in Hindi → reply in Hindi  
+- If they write in Hindi → reply in Hindi
 - If they write in English → reply in English
 - Always match the customer's language automatically
 
@@ -108,8 +106,7 @@ Gujarati: "નમસ્તે! Coding With Smile માં આપનું સ�
 """
 
 # Initialize Gemini AI
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ============================================================
 # HELPER FUNCTIONS
@@ -119,7 +116,10 @@ def get_ai_reply(user_message):
     """Get AI generated reply using Gemini"""
     try:
         prompt = f"{SHOP_INFO}\n\nCustomer message: {user_message}\n\nYour reply:"
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=prompt
+        )
         return response.text
     except Exception as e:
         print(f"Gemini error: {e}")
@@ -150,7 +150,6 @@ def reply_to_comment(comment_id, message):
 
 def post_to_instagram(image_url, caption):
     """Post content to Instagram (2 step process)"""
-    # Step 1: Create media container
     create_url = f"https://graph.instagram.com/v21.0/{INSTAGRAM_ID}/media"
     create_payload = {
         "image_url": image_url,
@@ -163,7 +162,6 @@ def post_to_instagram(image_url, caption):
     if not container_id:
         return {"error": "Failed to create media container"}
 
-    # Step 2: Publish the container
     publish_url = f"https://graph.instagram.com/v21.0/{INSTAGRAM_ID}/media_publish"
     publish_payload = {
         "creation_id": container_id,
@@ -199,7 +197,6 @@ def handle_webhook():
 
     try:
         for entry in data.get("entry", []):
-            # Handle Direct Messages
             for messaging in entry.get("messaging", []):
                 sender_id = messaging.get("sender", {}).get("id")
                 message = messaging.get("message", {})
@@ -210,7 +207,6 @@ def handle_webhook():
                     ai_reply = get_ai_reply(message_text)
                     send_dm_reply(sender_id, ai_reply)
 
-            # Handle Comments
             for change in entry.get("changes", []):
                 value = change.get("value", {})
                 if change.get("field") == "comments":
@@ -253,5 +249,5 @@ def home():
 # RUN APP
 # ============================================================
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=False)
