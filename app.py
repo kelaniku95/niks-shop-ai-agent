@@ -117,7 +117,7 @@ def get_ai_reply(user_message):
     try:
         prompt = f"{SHOP_INFO}\n\nCustomer message: {user_message}\n\nYour reply:"
         response = client.models.generate_content(
-            model='gemini-2.0-flash',
+            model='gemini-1.5-flash-latest',
             contents=prompt
         )
         return response.text
