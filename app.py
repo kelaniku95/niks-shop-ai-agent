@@ -291,15 +291,20 @@ def upload_audio_to_instagram(audio_bytes):
     return None
 
 def send_voice_reply(recipient_id, audio_url):
-    """Send voice message to Instagram user"""
+    """
+    Send voice reply to Instagram user.
+    Instagram API does NOT support audio type - use 'file' type instead!
+    """
     try:
         print(f"Sending voice to {recipient_id} | URL: {audio_url}")
         url = f"https://graph.instagram.com/v21.0/{INSTAGRAM_ID}/messages"
+
+        # Try 1: Send as generic file attachment
         payload = {
             "recipient": {"id": recipient_id},
             "message": {
                 "attachment": {
-                    "type": "audio",
+                    "type": "file",
                     "payload": {
                         "url": audio_url,
                         "is_reusable": True
@@ -309,13 +314,51 @@ def send_voice_reply(recipient_id, audio_url):
             "access_token": INSTAGRAM_ACCESS_TOKEN
         }
         response = requests.post(url, json=payload)
-        print(f"Voice send status: {response.status_code}")
-        print(f"Voice send response: {response.text}")
+        print(f"File send status: {response.status_code} | {response.text[:200]}")
+
         if response.status_code == 200:
-            print("Voice reply SUCCESS!")
-        else:
-            print(f"Voice reply FAILED: {response.text}")
-        return response
+            print("Voice/File reply SUCCESS!")
+            return response
+
+        # Try 2: Send as image type with different payload structure
+        print("File type failed, trying template...")
+        payload2 = {
+            "recipient": {"id": recipient_id},
+            "message": {
+                "attachment": {
+                    "type": "template",
+                    "payload": {
+                        "template_type": "generic",
+                        "elements": [{
+                            "title": "🎤 Voice Reply",
+                            "subtitle": "Tap to listen",
+                            "default_action": {
+                                "type": "web_url",
+                                "url": audio_url
+                            },
+                            "buttons": [{
+                                "type": "web_url",
+                                "url": audio_url,
+                                "title": "▶ Play Audio"
+                            }]
+                        }]
+                    }
+                }
+            },
+            "access_token": INSTAGRAM_ACCESS_TOKEN
+        }
+        response2 = requests.post(url, json=payload2)
+        print(f"Template send status: {response2.status_code} | {response2.text[:200]}")
+
+        if response2.status_code == 200:
+            print("Template voice reply SUCCESS!")
+            return response2
+
+        # Try 3: Just send URL as text - always works!
+        print("All attachment types failed, sending as text link...")
+        send_dm_reply(recipient_id, f"🎤 Voice Reply: {audio_url} - Tap the link to listen!")
+        return None
+
     except Exception as e:
         print(f"Voice reply error: {e}")
         return None
