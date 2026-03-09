@@ -337,6 +337,62 @@ def generate_image(prompt):
     print(f"Image URL generated: {image_url}")
     return image_url
 
+def needs_voice_reply(message):
+    """
+    Use Groq AI to detect if user wants a voice reply.
+    Works for ANY language, ANY phrasing - not just keywords!
+    Examples it understands:
+    - "tell me in audio"
+    - "voice ma jawab aap"
+    - "bolke samjhao"
+    - "can you speak the answer?"
+    - "avaz ma kaho"
+    - literally anything requesting voice/audio/spoken reply
+    """
+    try:
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "llama-3.1-8b-instant",  # Fast small model for quick decision
+            "messages": [
+                {
+                    "role": "system",
+                    "content": """You are a detector. Answer ONLY with YES or NO.
+Answer YES if the user is asking for a VOICE/AUDIO/SPOKEN reply.
+This includes any language - English, Hindi, Gujarati, or mixed.
+Examples of YES:
+- "voice me batao"
+- "speak the answer"
+- "reply in audio"
+- "voice ma bol"
+- "can you tell me by voice?"
+- "audio reply chahiye"
+- "bolke batao"
+- "avaz ma kaho"
+- "sunao mujhe"
+Answer NO for everything else."""
+                },
+                {"role": "user", "content": message}
+            ],
+            "max_tokens": 3,
+            "temperature": 0
+        }
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=10
+        )
+        result = response.json()
+        answer = result["choices"][0]["message"]["content"].strip().upper()
+        print(f"Voice reply detection: {answer}")
+        return "YES" in answer
+    except Exception as e:
+        print(f"Voice detection error: {e}")
+        return False  # Default no voice if detection fails
+
 def needs_image_generation(message):
     """Check if user wants to generate an image"""
     m = message.lower()
@@ -762,22 +818,34 @@ def handle_webhook():
                 elif message_text:
                     print(f"DM: {message_text}")
 
-                    # Check if user wants to generate an image
+                    # Case 1: User wants to generate an image
                     if needs_image_generation(message_text):
                         print(f"Image generation requested: {message_text}")
                         prompt = extract_image_prompt(message_text)
-                        print(f"Generating image for prompt: {prompt}")
-
-                        # Send acknowledgment first
                         send_dm_reply(sender_id, f"Generating your image of '{prompt}'... Please wait! 🎨")
-
-                        # Generate image
                         image_url = generate_image(prompt)
-
                         if image_url:
                             send_image_dm(sender_id, image_url, f"Here is your image of '{prompt}'! 🎨✨")
                         else:
                             send_dm_reply(sender_id, "Sorry, could not generate image right now. Please try again! 😊")
+
+                    # Case 2: User requests voice reply in text
+                    elif needs_voice_reply(message_text):
+                        print(f"Voice reply requested via text: {message_text}")
+                        send_dm_reply(sender_id, "Sure! Generating voice reply... 🎤")
+                        ai_text = get_ai_reply(message_text)
+                        voice_bytes = text_to_voice(ai_text)
+                        if voice_bytes:
+                            audio_url = upload_audio_to_instagram(voice_bytes)
+                            if audio_url:
+                                send_voice_reply(sender_id, audio_url)
+                                send_dm_reply(sender_id, ai_text)
+                            else:
+                                send_dm_reply(sender_id, ai_text)
+                        else:
+                            send_dm_reply(sender_id, ai_text)
+
+                    # Case 3: Normal text → text reply
                     else:
                         ai_reply = get_ai_reply(message_text)
                         send_dm_reply(sender_id, ai_reply)
