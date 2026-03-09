@@ -217,41 +217,83 @@ def text_to_voice(text, lang="en"):
 
 def upload_audio_to_instagram(audio_bytes):
     """
-    Upload audio to get a URL Instagram can use.
-    We use file.io as temporary free host.
+    Upload audio to a public URL that Instagram can access.
+    Tries multiple free hosts - if one fails, tries next!
     """
+    import tempfile, os as _os
+
+    # Save to temp file
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+        tmp.write(audio_bytes)
+        tmp_path = tmp.name
+
+    # ---- Host 1: file.io ----
     try:
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
-
         with open(tmp_path, "rb") as f:
-            response = requests.post(
-                "https://file.io",
+            resp = requests.post(
+                "https://file.io/?expires=1d",
                 files={"file": ("reply.mp3", f, "audio/mpeg")},
-                data={"expires": "1d"},
-                timeout=30
+                timeout=20
             )
-
-        import os as _os
-        _os.remove(tmp_path)
-
-        if response.status_code == 200:
-            data = response.json()
-            url = data.get("link", "")
-            print(f"Audio uploaded: {url}")
-            return url
-        else:
-            print(f"Upload failed: {response.status_code}")
-            return None
+        print(f"file.io status: {resp.status_code} | {resp.text[:200]}")
+        if resp.status_code == 200:
+            data = resp.json()
+            url = data.get("link") or data.get("url", "")
+            if url:
+                print(f"Audio URL (file.io): {url}")
+                _os.remove(tmp_path)
+                return url
     except Exception as e:
-        print(f"Upload error: {e}")
-        return None
+        print(f"file.io error: {e}")
+
+    # ---- Host 2: tmpfiles.org ----
+    try:
+        with open(tmp_path, "rb") as f:
+            resp = requests.post(
+                "https://tmpfiles.org/api/v1/upload",
+                files={"file": ("reply.mp3", f, "audio/mpeg")},
+                timeout=20
+            )
+        print(f"tmpfiles status: {resp.status_code} | {resp.text[:200]}")
+        if resp.status_code == 200:
+            data = resp.json()
+            url = data.get("data", {}).get("url", "")
+            # tmpfiles gives https://tmpfiles.org/XXXXX/reply.mp3
+            # convert to direct download link
+            url = url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
+            if url:
+                print(f"Audio URL (tmpfiles): {url}")
+                _os.remove(tmp_path)
+                return url
+    except Exception as e:
+        print(f"tmpfiles error: {e}")
+
+    # ---- Host 3: 0x0.st ----
+    try:
+        with open(tmp_path, "rb") as f:
+            resp = requests.post(
+                "https://0x0.st",
+                files={"file": ("reply.mp3", f, "audio/mpeg")},
+                timeout=20
+            )
+        print(f"0x0.st status: {resp.status_code} | {resp.text[:200]}")
+        if resp.status_code == 200:
+            url = resp.text.strip()
+            if url.startswith("http"):
+                print(f"Audio URL (0x0.st): {url}")
+                _os.remove(tmp_path)
+                return url
+    except Exception as e:
+        print(f"0x0.st error: {e}")
+
+    _os.remove(tmp_path)
+    print("All audio upload hosts failed!")
+    return None
 
 def send_voice_reply(recipient_id, audio_url):
     """Send voice message to Instagram user"""
     try:
+        print(f"Sending voice to {recipient_id} | URL: {audio_url}")
         url = f"https://graph.instagram.com/v21.0/{INSTAGRAM_ID}/messages"
         payload = {
             "recipient": {"id": recipient_id},
@@ -267,20 +309,40 @@ def send_voice_reply(recipient_id, audio_url):
             "access_token": INSTAGRAM_ACCESS_TOKEN
         }
         response = requests.post(url, json=payload)
-        print(f"Voice reply sent: {response.status_code} - {response.text}")
+        print(f"Voice send status: {response.status_code}")
+        print(f"Voice send response: {response.text}")
+        if response.status_code == 200:
+            print("Voice reply SUCCESS!")
+        else:
+            print(f"Voice reply FAILED: {response.text}")
         return response
     except Exception as e:
         print(f"Voice reply error: {e}")
         return None
 
+def send_voice_or_text(sender_id, ai_text):
+    """Helper: Try to send voice reply, fallback to text if fails"""
+    voice_bytes = text_to_voice(ai_text)
+    if voice_bytes:
+        audio_url_reply = upload_audio_to_instagram(voice_bytes)
+        if audio_url_reply:
+            send_voice_reply(sender_id, audio_url_reply)
+            send_dm_reply(sender_id, ai_text)  # Also send text version
+            print("Voice reply sent!")
+            return
+    # Fallback to text
+    print("Voice failed, sending text only")
+    send_dm_reply(sender_id, ai_text)
+
 def handle_voice_message(sender_id, audio_url):
     """
-    Full voice pipeline:
-    1. Download audio from Instagram
+    Smart voice pipeline - handles ALL features via voice!
+    1. Download audio
     2. Transcribe with Groq Whisper
-    3. Get AI reply
-    4. Convert reply to voice with gTTS
-    5. Upload voice and send back!
+    3. Route to correct feature:
+       - Image generation request? → generate & send image!
+       - Live data question?       → web search + voice reply!
+       - Normal question?          → AI reply + voice reply!
     """
     try:
         print(f"Voice pipeline started for {sender_id}")
@@ -294,32 +356,34 @@ def handle_voice_message(sender_id, audio_url):
         # Step 2: Transcribe voice to text
         transcribed = transcribe_voice(audio_bytes, content_type)
         if not transcribed:
-            send_dm_reply(sender_id, "I heard your voice but could not understand it clearly. Please try again or type your question! 😊")
+            send_dm_reply(sender_id, "I heard your voice but could not understand it clearly. Please try again! 😊")
             return
 
         print(f"User said: {transcribed}")
-        send_dm_reply(sender_id, f"I heard: '{transcribed}' - Let me answer! 🎤")
+        send_dm_reply(sender_id, f"🎤 I heard: '{transcribed}'")
 
-        # Step 3: Get AI text reply
+        # Step 3: Route to correct feature based on what user said
+
+        # Feature A: Image generation via voice!
+        if needs_image_generation(transcribed):
+            print("Voice: Image generation requested!")
+            prompt = extract_image_prompt(transcribed)
+            send_dm_reply(sender_id, f"Generating image of '{prompt}'... 🎨")
+            image_url = generate_image(prompt)
+            if image_url:
+                send_image_dm(sender_id, image_url, f"Here is your image of '{prompt}'! 🎨✨")
+            else:
+                send_dm_reply(sender_id, "Sorry, could not generate image. Please try again!")
+            return
+
+        # Feature B: Normal question → AI reply → Voice reply
         ai_text = get_ai_reply(transcribed)
         if not ai_text:
             send_dm_reply(sender_id, "Sorry, could not generate reply. Please try again!")
             return
 
-        # Step 4: Convert reply to voice
-        voice_bytes = text_to_voice(ai_text)
-
-        if voice_bytes:
-            # Step 5: Upload and send voice
-            audio_url_reply = upload_audio_to_instagram(voice_bytes)
-            if audio_url_reply:
-                send_voice_reply(sender_id, audio_url_reply)
-                send_dm_reply(sender_id, ai_text)  # Also send text version
-                print("Voice reply sent successfully!")
-                return
-
-        # Fallback: send text only if voice fails
-        send_dm_reply(sender_id, ai_text)
+        # Send as voice!
+        send_voice_or_text(sender_id, ai_text)
 
     except Exception as e:
         print(f"Voice pipeline error: {e}")
@@ -833,17 +897,18 @@ def handle_webhook():
                     elif needs_voice_reply(message_text):
                         print(f"Voice reply requested via text: {message_text}")
                         send_dm_reply(sender_id, "Sure! Generating voice reply... 🎤")
-                        ai_text = get_ai_reply(message_text)
-                        voice_bytes = text_to_voice(ai_text)
-                        if voice_bytes:
-                            audio_url = upload_audio_to_instagram(voice_bytes)
-                            if audio_url:
-                                send_voice_reply(sender_id, audio_url)
-                                send_dm_reply(sender_id, ai_text)
+                        # Also support image generation in voice request!
+                        if needs_image_generation(message_text):
+                            prompt = extract_image_prompt(message_text)
+                            send_dm_reply(sender_id, f"Generating image of '{prompt}'... 🎨")
+                            image_url = generate_image(prompt)
+                            if image_url:
+                                send_image_dm(sender_id, image_url, f"Here is your image of '{prompt}'! 🎨✨")
                             else:
-                                send_dm_reply(sender_id, ai_text)
+                                send_dm_reply(sender_id, "Sorry, could not generate image!")
                         else:
-                            send_dm_reply(sender_id, ai_text)
+                            ai_text = get_ai_reply(message_text)
+                            send_voice_or_text(sender_id, ai_text)
 
                     # Case 3: Normal text → text reply
                     else:
