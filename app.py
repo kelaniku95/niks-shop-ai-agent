@@ -846,6 +846,9 @@ def verify_webhook():
         return challenge, 200
     return "Forbidden", 403
 
+# Track processed message IDs to prevent duplicate processing
+processed_message_ids = set()
+
 @app.route("/webhook", methods=["POST"])
 def handle_webhook():
     data = request.json
@@ -854,10 +857,29 @@ def handle_webhook():
         for entry in data.get("entry", []):
             for messaging in entry.get("messaging", []):
                 sender_id = messaging.get("sender", {}).get("id")
+
+                # LOOP PREVENTION 1: Skip bot own messages
                 if not sender_id or sender_id == INSTAGRAM_ID:
                     continue
 
                 message = messaging.get("message", {})
+
+                # LOOP PREVENTION 2: Skip echo (bot sent messages reflected back)
+                if message.get("is_echo"):
+                    print("Skipping echo - bot own message")
+                    continue
+
+                # LOOP PREVENTION 3: Skip duplicate message IDs
+                mid = message.get("mid", "")
+                if mid and mid in processed_message_ids:
+                    print(f"Skipping duplicate message: {mid}")
+                    continue
+                if mid:
+                    processed_message_ids.add(mid)
+                    # Keep set small - remove old IDs
+                    if len(processed_message_ids) > 100:
+                        processed_message_ids.clear()
+
                 message_text = message.get("text", "")
                 attachments = message.get("attachments", [])
 
