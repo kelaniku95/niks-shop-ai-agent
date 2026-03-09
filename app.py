@@ -10,81 +10,143 @@ app = Flask(__name__)
 # CONFIGURATION
 # ============================================================
 VERIFY_TOKEN = "niksshop_verify_token_2024"
-INSTAGRAM_ACCESS_TOKEN = os.environ.get("INSTAGRAM_ACCESS_TOKEN", "YOUR_ACCESS_TOKEN")
-APP_SECRET = os.environ.get("APP_SECRET", "YOUR_APP_SECRET")
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "YOUR_GROQ_API_KEY")
+INSTAGRAM_ACCESS_TOKEN = os.environ.get("INSTAGRAM_ACCESS_TOKEN", "")
+APP_SECRET = os.environ.get("APP_SECRET", "")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 INSTAGRAM_ID = "17841443900182871"
 
 # ============================================================
-# SHOP INFO
+# SYSTEM PROMPT - Knows everything + Coding With Smile
 # ============================================================
-SHOP_INFO = """
-You are a helpful assistant for CODING WITH SMILE, an IT Training Center.
+SYSTEM_PROMPT = """You are an extremely intelligent AI assistant for CODING WITH SMILE institute.
+You can answer ANYTHING the user asks - not just course questions!
 
-LANGUAGE RULE: Always reply in the same language the customer uses.
+LANGUAGE RULE:
 - Gujarati message -> Gujarati reply
-- Hindi message -> Hindi reply  
+- Hindi message -> Hindi reply
 - English message -> English reply
 
 About Coding With Smile:
-- IT Training Center and Computer Classes
-- FREE Demo Session for ALL courses
-- ONLINE and OFFLINE classes available
-- Course Duration: 2 to 3 Months
-- Timing: 1 hour per day, 7 AM to 7 PM flexible
+- IT Training Center in Bhildi, Banaskantha, Gujarat
+- Courses: Python-5000rs, HTML/CSS/JS-3500rs, C-4000rs, C++-4000rs, PHP-4500rs, .NET-4500rs, SQL-3500rs, Oracle-3500rs
+- Duration: 2-3 months, 1hr/day, 7AM-7PM flexible
+- FREE demo for all courses! Online and Offline both available
+- Certificate after passing course test
+- Teachers: Nikunj Maheshwari(MCA)-97144 65982, Yogesh Thakkar(PhD)-85119 96361, Bhavesh Panchal(B.Ed)-96648 98764
+- Email: codingwithsmile2025@gmail.com
 - Location: Smile Xerox, Near Goga Maharaj Mandir, Soyla Road, Bhildi-385530, Deesa, Banaskantha
 
-Courses and Fees:
-- BCC + Internet: contact for price
-- HTML/CSS/JS: 3500 rupees
-- C: 4000 rupees
-- C++: 4000 rupees
-- PHP: 4500 rupees
-- .NET: 4500 rupees
-- Python: 5000 rupees
-- SQL: 3500 rupees
-- Oracle: 3500 rupees
-
-Certificate: Yes, after passing end-of-course test
-Syllabus: Given on first visit
-Discounts: None currently
-
-Teachers:
-- Nikunj Maheshwari (MCA): 97144 65982
-- Yogesh Thakkar (PhD): 85119 96361
-- Bhavesh Panchal (B.Ed): 96648 98764
-Email: codingwithsmile2025@gmail.com
-
-Why Join:
-- Expert teachers (MCA, PhD, B.Ed)
-- Flexible timings 7AM to 7PM
-- Online and Offline both
-- FREE demo before joining
-- Certificate on completion
-- Fees from 3500 rupees only
+You can also answer:
+- Sports scores, cricket, IPL, T20, football (use web search results if provided)
+- News, current events, weather
+- Science, history, math, geography
+- Coding, programming, AI, tech questions
+- Recipes, health, general knowledge
+- Jokes, stories, anything!
 
 Rules:
-- Be friendly and professional
-- Answer ANY coding or tech questions
-- Always connect back to Coding With Smile
-- Keep replies under 150 words
-- Always mention FREE demo
-- End with a call to action
+- Keep replies under 200 words (Instagram limit)
+- Be friendly and helpful
+- For Coding With Smile questions, always mention FREE demo
+- For general questions, answer fully then relate to institute if relevant
+- Never say you cannot answer something
 """
 
 # ============================================================
-# AI REPLY USING GROQ (FREE)
+# WEB SEARCH - DuckDuckGo Free
+# ============================================================
+def web_search(query, num=4):
+    """Search web for live information"""
+    try:
+        from ddgs import DDGS
+        results = []
+        with DDGS() as ddgs:
+            for r in ddgs.text(query, max_results=num):
+                results.append(f"- {r['title']}: {r['body']}")
+        return "\n".join(results)
+    except Exception as e:
+        print(f"Search error: {e}")
+        return ""
+
+def news_search(query, num=3):
+    """Search latest news"""
+    try:
+        from ddgs import DDGS
+        results = []
+        with DDGS() as ddgs:
+            for r in ddgs.news(query, max_results=num):
+                results.append(f"- {r['title']} ({r.get('date','')}): {r.get('body','')}")
+        return "\n".join(results)
+    except Exception as e:
+        return ""
+
+# ============================================================
+# SMART SEARCH DECISION
+# ============================================================
+def needs_search(question):
+    """Check if question needs live web data"""
+    q = question.lower()
+    live_keywords = [
+        # Sports
+        "cricket", "ipl", "t20", "odi", "world cup", "match", "score",
+        "football", "fifa", "tennis", "kabaddi", "hockey",
+        "won", "win", "lost", "result", "winner", "champion",
+        "virat", "rohit", "dhoni", "sachin", "messi", "ronaldo",
+        # News
+        "news", "today", "yesterday", "latest", "recent", "current",
+        "now", "live", "breaking", "update", "happened", "aaj", "kal",
+        # Weather
+        "weather", "temperature", "rain", "mausam", "barish",
+        # Finance
+        "price", "stock", "crypto", "bitcoin", "gold", "rate",
+        "rupee", "dollar", "market", "sensex", "nifty",
+        # Politics
+        "election", "vote", "minister", "government", "modi",
+        # Entertainment
+        "new movie", "new song", "box office", "release",
+    ]
+    return any(k in q for k in live_keywords)
+
+# ============================================================
+# MAIN AI REPLY FUNCTION - With Web Search!
 # ============================================================
 def get_ai_reply(user_message):
+    """Get smart AI reply with web search when needed"""
     try:
+        now = datetime.now().strftime("%d %B %Y, %I:%M %p")
+        search_context = ""
+
+        # Search web if needed
+        if needs_search(user_message):
+            print(f"Searching web for: {user_message}")
+            web_data = web_search(user_message)
+            news_data = news_search(user_message)
+            if web_data or news_data:
+                search_context = f"""
+LIVE WEB SEARCH RESULTS (as of {now}):
+{web_data}
+
+LATEST NEWS:
+{news_data}
+
+Use above information to give accurate real-time answer.
+Keep reply under 200 words.
+"""
+        # Build system prompt
+        full_system = SYSTEM_PROMPT
+        if search_context:
+            full_system += f"\n\n{search_context}"
+        full_system += f"\n\nCurrent date/time: {now}"
+
+        # Call Groq API
         headers = {
             "Authorization": f"Bearer {GROQ_API_KEY}",
             "Content-Type": "application/json"
         }
         payload = {
-            "model": "llama-3.1-8b-instant",
+            "model": "llama-3.3-70b-versatile",
             "messages": [
-                {"role": "system", "content": SHOP_INFO},
+                {"role": "system", "content": full_system},
                 {"role": "user", "content": user_message}
             ],
             "max_tokens": 300,
@@ -96,13 +158,39 @@ def get_ai_reply(user_message):
             json=payload,
             timeout=30
         )
-        print(f"Groq status: {response.status_code}")
         result = response.json()
-        print(f"Groq response: {result}")
-        return result["choices"][0]["message"]["content"]
+        reply = result["choices"][0]["message"]["content"]
+        print(f"Reply generated successfully")
+        return reply
+
     except Exception as e:
         print(f"AI error: {e}")
-        return "Thanks for reaching out to Coding With Smile! We offer IT courses like Python, HTML/CSS/JS, C, C++, PHP, .NET, SQL & Oracle. Duration: 2-3 months. FREE demo available! Contact: 97144 65982"
+        # Try fallback model
+        try:
+            headers = {
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": "llama-3.1-8b-instant",
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message}
+                ],
+                "max_tokens": 300,
+                "temperature": 0.7
+            }
+            response = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
+            result = response.json()
+            return result["choices"][0]["message"]["content"]
+        except Exception as e2:
+            print(f"Fallback error: {e2}")
+            return "Thanks for reaching out to Coding With Smile! We offer Python, HTML/CSS/JS, C, C++, PHP, .NET, SQL & Oracle courses. FREE demo available! Contact: 97144 65982"
 
 # ============================================================
 # INSTAGRAM FUNCTIONS
@@ -143,7 +231,7 @@ def verify_webhook():
 @app.route("/webhook", methods=["POST"])
 def handle_webhook():
     data = request.json
-    print(f"Webhook: {json.dumps(data, indent=2)}")
+    print(f"Webhook received")
     try:
         for entry in data.get("entry", []):
             for messaging in entry.get("messaging", []):
@@ -171,7 +259,7 @@ def handle_webhook():
 def home():
     return jsonify({
         "status": "running",
-        "app": "Coding With Smile AI Agent",
+        "app": "Coding With Smile Ultimate AI Agent",
         "time": str(datetime.now())
     })
 
