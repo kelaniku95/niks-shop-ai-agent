@@ -401,7 +401,11 @@ def handle_voice_message(sender_id, audio_url):
             return
 
         # Feature B: Normal question → AI reply → Voice reply
-        ai_text = get_ai_reply(transcribed)
+        # For voice, ALWAYS do web search - user expects live data!
+        print(f"Needs search check for: {transcribed}")
+        will_search = needs_search(transcribed)
+        print(f"Will search: {will_search}")
+        ai_text = get_ai_reply_with_search(transcribed, force_search=True)
         if not ai_text:
             send_dm_reply(sender_id, "Sorry, could not generate reply. Please try again!")
             return
@@ -731,22 +735,35 @@ def call_groq_vision(image_base64, content_type, user_caption=""):
 # MAIN AI REPLY - Text Messages
 # ============================================================
 def get_ai_reply(user_message):
+    return get_ai_reply_with_search(user_message, force_search=False)
+
+def get_ai_reply_with_search(user_message, force_search=False):
+    """
+    Get AI reply with optional forced web search.
+    force_search=True: Always search web (used for voice messages)
+    force_search=False: Search only if keywords match (used for text)
+    """
     try:
         now = datetime.now().strftime("%d %B %Y, %I:%M %p")
         search_context = ""
 
-        if needs_search(user_message):
-            print(f"Live search for: {user_message}")
+        # Search if keywords match OR if force_search is True
+        if force_search or needs_search(user_message):
+            print(f"Web search triggered (force={force_search}) for: {user_message}")
             web_data = web_search(user_message)
             news_data = news_search(user_message)
+            print(f"Web data found: {len(web_data)} chars")
+            print(f"News data found: {len(news_data)} chars")
             if web_data or news_data:
                 search_context = f"""
 LIVE WEB DATA (as of {now}):
 {web_data}
 LATEST NEWS:
 {news_data}
-Use this data to answer accurately.
+Use this live data to answer accurately. This is real-time information!
 """
+        else:
+            print(f"No search needed for: {user_message}")
 
         full_system = SYSTEM_PROMPT
         if search_context:
