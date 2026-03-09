@@ -227,26 +227,7 @@ def upload_audio_to_instagram(audio_bytes):
         tmp.write(audio_bytes)
         tmp_path = tmp.name
 
-    # ---- Host 1: file.io ----
-    try:
-        with open(tmp_path, "rb") as f:
-            resp = requests.post(
-                "https://file.io/?expires=1d",
-                files={"file": ("reply.mp3", f, "audio/mpeg")},
-                timeout=20
-            )
-        print(f"file.io status: {resp.status_code} | {resp.text[:200]}")
-        if resp.status_code == 200:
-            data = resp.json()
-            url = data.get("link") or data.get("url", "")
-            if url:
-                print(f"Audio URL (file.io): {url}")
-                _os.remove(tmp_path)
-                return url
-    except Exception as e:
-        print(f"file.io error: {e}")
-
-    # ---- Host 2: tmpfiles.org ----
+    # ---- Host 1: tmpfiles.org ----
     try:
         with open(tmp_path, "rb") as f:
             resp = requests.post(
