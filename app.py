@@ -99,6 +99,232 @@ Rules:
 """
 
 
+
+# ============================================================
+# VOICE - Transcribe (Groq Whisper) + Speak (gTTS)
+# ============================================================
+def download_audio(audio_url):
+    """Download audio file from Instagram"""
+    try:
+        headers = {"Authorization": f"Bearer {INSTAGRAM_ACCESS_TOKEN}"}
+        response = requests.get(audio_url, headers=headers, timeout=30)
+        if response.status_code == 200:
+            print(f"Audio downloaded: {len(response.content)} bytes")
+            return response.content, response.headers.get("content-type", "audio/mpeg")
+        print(f"Audio download failed: {response.status_code}")
+        return None, None
+    except Exception as e:
+        print(f"Audio download error: {e}")
+        return None, None
+
+def transcribe_voice(audio_bytes, content_type="audio/mpeg"):
+    """
+    Transcribe voice to text using Groq Whisper (FREE!)
+    Supports: Gujarati, Hindi, English automatically!
+    """
+    try:
+        import tempfile
+
+        # Detect file extension from content type
+        ext_map = {
+            "audio/mpeg": "mp3",
+            "audio/mp4": "mp4",
+            "audio/ogg": "ogg",
+            "audio/wav": "wav",
+            "audio/webm": "webm",
+            "audio/aac": "aac",
+        }
+        ext = ext_map.get(content_type, "mp3")
+
+        # Save to temp file
+        with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+
+        # Send to Groq Whisper
+        with open(tmp_path, "rb") as audio_file:
+            response = requests.post(
+                "https://api.groq.com/openai/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+                files={"file": (f"audio.{ext}", audio_file, content_type)},
+                data={
+                    "model": "whisper-large-v3",
+                    "response_format": "text",
+                    # Auto detect language - works for Gujarati, Hindi, English!
+                },
+                timeout=30
+            )
+
+        # Cleanup temp file
+        import os as _os
+        _os.remove(tmp_path)
+
+        if response.status_code == 200:
+            transcribed = response.text.strip()
+            print(f"Transcribed: {transcribed}")
+            return transcribed
+        else:
+            print(f"Whisper error: {response.status_code} - {response.text}")
+            return None
+
+    except Exception as e:
+        print(f"Transcribe error: {e}")
+        return None
+
+def text_to_voice(text, lang="en"):
+    """
+    Convert text reply to voice using gTTS (FREE!)
+    Auto detects language for Gujarati/Hindi/English
+    """
+    try:
+        from gtts import gTTS
+        import tempfile
+
+        # Detect language
+        gujarati_chars = any("઀" <= c <= "૿" for c in text)
+        hindi_chars = any("ऀ" <= c <= "ॿ" for c in text)
+
+        if gujarati_chars:
+            tts_lang = "gu"
+        elif hindi_chars:
+            tts_lang = "hi"
+        else:
+            tts_lang = "en"
+
+        print(f"TTS language: {tts_lang}")
+
+        # Generate voice
+        tts = gTTS(text=text[:500], lang=tts_lang, slow=False)
+
+        # Save to temp file
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+            tts.save(tmp.name)
+            tmp_path = tmp.name
+
+        # Read file as bytes
+        with open(tmp_path, "rb") as f:
+            audio_bytes = f.read()
+
+        import os as _os
+        _os.remove(tmp_path)
+
+        print(f"Voice generated: {len(audio_bytes)} bytes")
+        return audio_bytes
+
+    except Exception as e:
+        print(f"TTS error: {e}")
+        return None
+
+def upload_audio_to_instagram(audio_bytes):
+    """
+    Upload audio to get a URL Instagram can use.
+    We use file.io as temporary free host.
+    """
+    try:
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+
+        with open(tmp_path, "rb") as f:
+            response = requests.post(
+                "https://file.io",
+                files={"file": ("reply.mp3", f, "audio/mpeg")},
+                data={"expires": "1d"},
+                timeout=30
+            )
+
+        import os as _os
+        _os.remove(tmp_path)
+
+        if response.status_code == 200:
+            data = response.json()
+            url = data.get("link", "")
+            print(f"Audio uploaded: {url}")
+            return url
+        else:
+            print(f"Upload failed: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"Upload error: {e}")
+        return None
+
+def send_voice_reply(recipient_id, audio_url):
+    """Send voice message to Instagram user"""
+    try:
+        url = f"https://graph.instagram.com/v21.0/{INSTAGRAM_ID}/messages"
+        payload = {
+            "recipient": {"id": recipient_id},
+            "message": {
+                "attachment": {
+                    "type": "audio",
+                    "payload": {
+                        "url": audio_url,
+                        "is_reusable": True
+                    }
+                }
+            },
+            "access_token": INSTAGRAM_ACCESS_TOKEN
+        }
+        response = requests.post(url, json=payload)
+        print(f"Voice reply sent: {response.status_code} - {response.text}")
+        return response
+    except Exception as e:
+        print(f"Voice reply error: {e}")
+        return None
+
+def handle_voice_message(sender_id, audio_url):
+    """
+    Full voice pipeline:
+    1. Download audio from Instagram
+    2. Transcribe with Groq Whisper
+    3. Get AI reply
+    4. Convert reply to voice with gTTS
+    5. Upload voice and send back!
+    """
+    try:
+        print(f"Voice pipeline started for {sender_id}")
+
+        # Step 1: Download audio
+        audio_bytes, content_type = download_audio(audio_url)
+        if not audio_bytes:
+            send_dm_reply(sender_id, "I received your voice message but could not download it. Please try again! 😊")
+            return
+
+        # Step 2: Transcribe voice to text
+        transcribed = transcribe_voice(audio_bytes, content_type)
+        if not transcribed:
+            send_dm_reply(sender_id, "I heard your voice but could not understand it clearly. Please try again or type your question! 😊")
+            return
+
+        print(f"User said: {transcribed}")
+        send_dm_reply(sender_id, f"I heard: '{transcribed}' - Let me answer! 🎤")
+
+        # Step 3: Get AI text reply
+        ai_text = get_ai_reply(transcribed)
+        if not ai_text:
+            send_dm_reply(sender_id, "Sorry, could not generate reply. Please try again!")
+            return
+
+        # Step 4: Convert reply to voice
+        voice_bytes = text_to_voice(ai_text)
+
+        if voice_bytes:
+            # Step 5: Upload and send voice
+            audio_url_reply = upload_audio_to_instagram(voice_bytes)
+            if audio_url_reply:
+                send_voice_reply(sender_id, audio_url_reply)
+                send_dm_reply(sender_id, ai_text)  # Also send text version
+                print("Voice reply sent successfully!")
+                return
+
+        # Fallback: send text only if voice fails
+        send_dm_reply(sender_id, ai_text)
+
+    except Exception as e:
+        print(f"Voice pipeline error: {e}")
+        send_dm_reply(sender_id, "Sorry, voice processing failed. Please type your question! 😊")
+
 # ============================================================
 # IMAGE GENERATION - Pollinations AI (Free, No API Key!)
 # ============================================================
@@ -511,12 +737,21 @@ def handle_webhook():
 
                             send_dm_reply(sender_id, ai_reply)
 
-                        elif att_type == "audio":
-                            print(f"Audio received from {sender_id}")
-                            send_dm_reply(sender_id,
-                                "I received your voice message! Voice reply feature coming soon. "
-                                "Please type your question and I will answer instantly! 😊 "
-                                "For Coding With Smile courses: 97144 65982")
+                        elif att_type in ["audio", "voice"]:
+                            print(f"Voice message received from {sender_id}")
+                            payload_data = attachment.get("payload", {})
+                            audio_url = (
+                                payload_data.get("url") or
+                                payload_data.get("media_url") or
+                                attachment.get("url") or ""
+                            )
+                            print(f"Audio URL: {audio_url}")
+                            if audio_url:
+                                send_dm_reply(sender_id, "Got your voice message! Processing... 🎤")
+                                handle_voice_message(sender_id, audio_url)
+                            else:
+                                print(f"Full audio payload: {json.dumps(attachment, indent=2)}")
+                                send_dm_reply(sender_id, "I received your voice message but could not access it. Please type your question! 😊")
 
                         else:
                             print(f"Other attachment: {att_type}")
