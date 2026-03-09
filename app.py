@@ -406,23 +406,25 @@ def handle_webhook():
                         att_type = attachment.get("type", "")
                         payload_data = attachment.get("payload", {})
 
-                        if att_type == "image":
-                            print(f"Image received from {sender_id}")
-                            # Get media ID
+                        if att_type in ["image", "ephemeral"]:
+                            # "ephemeral" = camera photo taken in Instagram
+                            # "image" = photo from gallery
+                            print(f"Image/Ephemeral received from {sender_id} (type: {att_type})")
                             media_id = payload_data.get("id", "")
                             image_url = payload_data.get("url", "")
 
                             if media_id:
                                 ai_reply = get_image_reply(media_id, message_text)
                             elif image_url:
-                                # Direct URL available
                                 image_base64, content_type = download_image(image_url)
                                 if image_base64:
                                     ai_reply = call_groq_vision(image_base64, content_type, message_text)
                                 else:
                                     ai_reply = "I received your image! Please describe what you need help with 😊"
                             else:
-                                ai_reply = "I received your image! Please describe what you need help with 😊"
+                                # Log full payload to debug
+                                print(f"Full attachment payload: {attachment}")
+                                ai_reply = "I can see your photo! Unfortunately I could not read it. Please describe what you need help with 😊"
 
                             send_dm_reply(sender_id, ai_reply)
 
