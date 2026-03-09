@@ -98,6 +98,78 @@ Rules:
 - Use emojis naturally
 """
 
+
+# ============================================================
+# IMAGE GENERATION - Pollinations AI (Free, No API Key!)
+# ============================================================
+def generate_image(prompt):
+    """Generate image from text - FREE, no API key needed!"""
+    import urllib.parse
+    clean_prompt = prompt.strip()
+    encoded = urllib.parse.quote(clean_prompt)
+    image_url = f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true"
+    print(f"Image URL generated: {image_url}")
+    return image_url
+
+def needs_image_generation(message):
+    """Check if user wants to generate an image"""
+    m = message.lower()
+    keywords = [
+        "create image", "generate image", "make image", "draw image",
+        "create photo", "generate photo", "make photo",
+        "create a picture", "generate a picture", "make a picture",
+        "image of", "photo of", "picture of",
+        "draw a", "draw me", "draw me a",
+        "image banao", "photo banao", "tasvir banao",
+        "image banana", "photo banana",
+    ]
+    return any(k in m for k in keywords)
+
+def extract_image_prompt(message):
+    """Extract the actual subject from user image request"""
+    m = message.lower()
+    remove_words = [
+        "create image of", "generate image of", "make image of",
+        "create photo of", "generate photo of", "make photo of",
+        "create a picture of", "make a picture of", "generate a picture of",
+        "image of", "photo of", "picture of",
+        "draw a", "draw me a", "draw me", "draw",
+        "create a", "generate a", "make a",
+        "create", "generate", "make",
+        "image banao", "photo banao", "tasvir banao",
+        "image banana", "photo banana",
+    ]
+    prompt = message
+    for word in sorted(remove_words, key=len, reverse=True):
+        prompt = prompt.lower().replace(word, "").strip()
+    return prompt if prompt else message
+
+def send_image_dm(recipient_id, image_url, caption=""):
+    """Send generated image to Instagram user"""
+    try:
+        url = f"https://graph.instagram.com/v21.0/{INSTAGRAM_ID}/messages"
+        payload = {
+            "recipient": {"id": recipient_id},
+            "message": {
+                "attachment": {
+                    "type": "image",
+                    "payload": {
+                        "url": image_url,
+                        "is_reusable": True
+                    }
+                }
+            },
+            "access_token": INSTAGRAM_ACCESS_TOKEN
+        }
+        response = requests.post(url, json=payload)
+        print(f"Image DM sent: {response.status_code}")
+        if caption:
+            send_dm_reply(recipient_id, caption)
+        return response
+    except Exception as e:
+        print(f"Send image DM error: {e}")
+        send_dm_reply(recipient_id, f"Your image is ready! View here: {image_url}")
+
 # ============================================================
 # WEB SEARCH
 # ============================================================
@@ -407,24 +479,35 @@ def handle_webhook():
                         payload_data = attachment.get("payload", {})
 
                         if att_type in ["image", "ephemeral"]:
-                            # "ephemeral" = camera photo taken in Instagram
-                            # "image" = photo from gallery
-                            print(f"Image/Ephemeral received from {sender_id} (type: {att_type})")
-                            media_id = payload_data.get("id", "")
-                            image_url = payload_data.get("url", "")
+                            # "ephemeral" = camera photo, "image" = gallery photo
+                            print(f"Image received (type: {att_type})")
+                            print(f"Full payload: {json.dumps(attachment, indent=2)}")
 
-                            if media_id:
-                                ai_reply = get_image_reply(media_id, message_text)
-                            elif image_url:
+                            media_id = payload_data.get("id", "")
+                            image_url = (
+                                payload_data.get("url") or
+                                payload_data.get("media_url") or
+                                payload_data.get("image_url") or
+                                attachment.get("url") or
+                                ""
+                            )
+
+                            print(f"media_id={media_id}, image_url={image_url}")
+
+                            if image_url:
+                                # Direct URL - download and analyze
                                 image_base64, content_type = download_image(image_url)
                                 if image_base64:
                                     ai_reply = call_groq_vision(image_base64, content_type, message_text)
                                 else:
-                                    ai_reply = "I received your image! Please describe what you need help with 😊"
+                                    ai_reply = "I received your image but could not download it. Please try sending from gallery! 😊"
+                            elif media_id:
+                                # Try fetching via media ID
+                                ai_reply = get_image_reply(media_id, message_text)
                             else:
-                                # Log full payload to debug
-                                print(f"Full attachment payload: {attachment}")
-                                ai_reply = "I can see your photo! Unfortunately I could not read it. Please describe what you need help with 😊"
+                                # Ephemeral camera photos - Instagram blocks access for privacy
+                                print("Ephemeral photo - no URL (Instagram privacy restriction)")
+                                ai_reply = "I can see you sent a camera photo! Instagram does not share live camera photos with bots for privacy. Please send photo from your GALLERY instead, or type your question! I can still help you! 😊"
 
                             send_dm_reply(sender_id, ai_reply)
 
@@ -443,8 +526,26 @@ def handle_webhook():
                 # Handle TEXT messages
                 elif message_text:
                     print(f"DM: {message_text}")
-                    ai_reply = get_ai_reply(message_text)
-                    send_dm_reply(sender_id, ai_reply)
+
+                    # Check if user wants to generate an image
+                    if needs_image_generation(message_text):
+                        print(f"Image generation requested: {message_text}")
+                        prompt = extract_image_prompt(message_text)
+                        print(f"Generating image for prompt: {prompt}")
+
+                        # Send acknowledgment first
+                        send_dm_reply(sender_id, f"Generating your image of '{prompt}'... Please wait! 🎨")
+
+                        # Generate image
+                        image_url = generate_image(prompt)
+
+                        if image_url:
+                            send_image_dm(sender_id, image_url, f"Here is your image of '{prompt}'! 🎨✨")
+                        else:
+                            send_dm_reply(sender_id, "Sorry, could not generate image right now. Please try again! 😊")
+                    else:
+                        ai_reply = get_ai_reply(message_text)
+                        send_dm_reply(sender_id, ai_reply)
 
             # Handle COMMENTS
             for change in entry.get("changes", []):
