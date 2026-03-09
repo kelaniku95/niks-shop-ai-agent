@@ -3,7 +3,7 @@ import json
 import requests
 import base64
 from flask import Flask, request, jsonify
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 app = Flask(__name__)
 
@@ -171,6 +171,36 @@ def transcribe_voice(audio_bytes, content_type="audio/mpeg"):
         print(f"Transcribe error: {e}")
         return None
 
+def remove_emojis(text):
+    """Remove all emojis and symbols - gTTS reads them as words!"""
+    import re
+    # Remove all emoji unicode ranges
+    emoji_pattern = re.compile(
+        "["
+        u"\U0001F600-\U0001F64F"  # emoticons
+        u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+        u"\U0001F680-\U0001F6FF"  # transport & map
+        u"\U0001F1E0-\U0001F1FF"  # flags
+        u"\U00002500-\U00002BEF"  # chinese/misc symbols
+        u"\U00002702-\U000027B0"  # dingbats
+        u"\U000024C2-\U0001F251"  # enclosed chars
+        u"\U0001f926-\U0001f937"  # misc
+        u"\U00010000-\U0010ffff"  # supplemental
+        u"\u2640-\u2642"
+        u"\u2600-\u2B55"
+        u"\u200d"
+        u"\u23cf"
+        u"\u23e9"
+        u"\u231a"
+        u"\ufe0f"
+        u"\u3030"
+        "]+", flags=re.UNICODE
+    )
+    clean = emoji_pattern.sub("", text)
+    # Also remove extra spaces left behind
+    clean = re.sub(r"  +", " ", clean).strip()
+    return clean
+
 def text_to_voice(text, lang="en"):
     """
     Convert text reply to voice using gTTS (FREE!)
@@ -180,9 +210,13 @@ def text_to_voice(text, lang="en"):
         from gtts import gTTS
         import tempfile
 
+        # Remove emojis first - gTTS reads them as words!
+        clean_text = remove_emojis(text)
+        print(f"Text after emoji removal: {clean_text[:100]}")
+
         # Detect language
-        gujarati_chars = any("઀" <= c <= "૿" for c in text)
-        hindi_chars = any("ऀ" <= c <= "ॿ" for c in text)
+        gujarati_chars = any("઀" <= c <= "૿" for c in clean_text)
+        hindi_chars = any("ऀ" <= c <= "ॿ" for c in clean_text)
 
         if gujarati_chars:
             tts_lang = "gu"
@@ -194,7 +228,7 @@ def text_to_voice(text, lang="en"):
         print(f"TTS language: {tts_lang}")
 
         # Generate voice
-        tts = gTTS(text=text[:500], lang=tts_lang, slow=False)
+        tts = gTTS(text=clean_text[:500], lang=tts_lang, slow=False)
 
         # Save to temp file
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
@@ -744,7 +778,9 @@ def get_ai_reply_with_search(user_message, force_search=False):
     force_search=False: Search only if keywords match (used for text)
     """
     try:
-        now = datetime.now().strftime("%d %B %Y, %I:%M %p")
+        # IST = UTC + 5:30
+        IST = timezone(timedelta(hours=5, minutes=30))
+        now = datetime.now(IST).strftime("%d %B %Y, %I:%M %p IST")
         search_context = ""
 
         # Search if keywords match OR if force_search is True
