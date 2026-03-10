@@ -562,18 +562,33 @@ Answer NO for everything else."""
         return False  # Default no voice if detection fails
 
 def needs_image_generation(message):
-    """Check if user wants to generate an image"""
-    m = message.lower()
-    keywords = [
-        "create image", "generate image", "make image", "draw image",
-        "create photo", "generate photo", "make photo",
-        "create a picture", "generate a picture", "make a picture",
-        "image of", "photo of", "picture of",
-        "draw a", "draw me", "draw me a",
-        "image banao", "photo banao", "tasvir banao",
-        "image banana", "photo banana",
-    ]
-    return any(k in m for k in keywords)
+    """
+    Use Groq AI to detect if user wants to generate an image.
+    Handles ANY language, ANY typo, ANY phrasing - voice transcription too!
+    """
+    try:
+        result = call_groq([
+            {
+                "role": "system",
+                "content": (
+                    "You detect if the user wants to generate/create/draw an image or photo. "
+                    "Reply ONLY with YES or NO. "
+                    "YES if user wants: create image, generate photo, draw something, make a picture, "
+                    "image banao, tasvir banao, or ANY variation in ANY language with typos too. "
+                    "NO if user is just asking a question or chatting."
+                )
+            },
+            {"role": "user", "content": message}
+        ])
+        answer = result.strip().upper()
+        print(f"Image detection: {answer}")
+        return answer.startswith("YES")
+    except Exception as e:
+        print(f"Image detection error: {e}, falling back to keywords")
+        m = message.lower()
+        keywords = ["image", "photo", "picture", "draw", "generate", "create",
+                    "banao", "banana", "tasvir"]
+        return any(k in m for k in keywords)
 
 def extract_image_prompt(message):
     """Extract the actual subject from user image request"""
@@ -582,6 +597,8 @@ def extract_image_prompt(message):
         # English - longest first to avoid partial matches
         "create image for", "generate image for", "make image for",
         "create image of", "generate image of", "make image of",
+        "genrate image for", "genrate image of", "genrate image",
+        "cerate image for", "cerate image of",
         "create photo for", "generate photo for", "make photo for",
         "create photo of", "generate photo of", "make photo of",
         "create a picture of", "make a picture of", "generate a picture of",
