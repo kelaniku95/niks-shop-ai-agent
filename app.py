@@ -579,6 +579,8 @@ def send_image_dm(recipient_id, image_url, caption=""):
     """Send generated image to Instagram user"""
     try:
         url = f"https://graph.instagram.com/v21.0/{INSTAGRAM_ID}/messages"
+
+        # Send image
         payload = {
             "recipient": {"id": recipient_id},
             "message": {
@@ -593,13 +595,17 @@ def send_image_dm(recipient_id, image_url, caption=""):
             "access_token": INSTAGRAM_ACCESS_TOKEN
         }
         response = requests.post(url, json=payload)
-        print(f"Image DM sent: {response.status_code}")
+        print(f"Image DM status: {response.status_code}")
+        print(f"Image DM response: {response.text}")
+
+        # Send caption after image
         if caption:
             send_dm_reply(recipient_id, caption)
+
         return response
     except Exception as e:
         print(f"Send image DM error: {e}")
-        send_dm_reply(recipient_id, f"Your image is ready! View here: {image_url}")
+        send_dm_reply(recipient_id, f"Your image: {image_url}")
 
 # ============================================================
 # WEB SEARCH
