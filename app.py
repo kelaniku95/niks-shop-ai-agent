@@ -470,39 +470,62 @@ def handle_voice_message(sender_id, audio_url):
 # ============================================================
 def generate_image(prompt):
     """
-    Generate image using Pollinations AI.
-    Retries up to 5 times if server busy (500 error).
-    No upload needed - direct URL works with Instagram!
+    Generate image using Pollinations AI with proper rate limit handling.
+    Waits longer between retries to avoid 429 rate limiting.
     """
-    import urllib.parse, time
+    import urllib.parse, time, tempfile, os as _os
     clean_prompt = prompt.strip()
     encoded = urllib.parse.quote(clean_prompt)
-    
-    # Try different seeds/models on each retry
+
     attempts = [
-        f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true&seed=1",
-        f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true&seed=42",
-        f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true&seed=99",
-        f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true&seed=7",
-        f"https://image.pollinations.ai/prompt/{encoded}?nologo=true",
+        f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true&model=flux",
+        f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true&model=turbo",
+        f"https://image.pollinations.ai/prompt/{encoded}?width=512&height=512&nologo=true",
     ]
-    
-    for i, url in enumerate(attempts):
+
+    for i, poll_url in enumerate(attempts):
         try:
-            print(f"Attempt {i+1}: {url}")
-            resp = requests.get(url, timeout=60)
+            wait = i * 10  # 0s, 10s, 20s between attempts
+            if wait > 0:
+                print(f"Waiting {wait}s before attempt {i+1}...")
+                time.sleep(wait)
+
+            print(f"Attempt {i+1}: {poll_url}")
+            resp = requests.get(poll_url, timeout=90)
             print(f"Status: {resp.status_code}, Size: {len(resp.content)} bytes")
-            
+
             if resp.status_code == 200 and len(resp.content) > 5000:
-                print(f"✅ Image ready on attempt {i+1}!")
-                return url  # Direct URL works - Instagram loads it fine!
-            else:
-                print(f"Attempt {i+1} failed, waiting 3s...")
-                time.sleep(3)
+                print(f"✅ Image downloaded on attempt {i+1}!")
+                # Upload to tmpfiles for stable Instagram URL
+                try:
+                    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+                        tmp.write(resp.content)
+                        tmp_path = tmp.name
+                    with open(tmp_path, "rb") as f:
+                        upload = requests.post(
+                            "https://tmpfiles.org/api/v1/upload",
+                            files={"file": ("image.jpg", f, "image/jpeg")},
+                            timeout=30
+                        )
+                    _os.remove(tmp_path)
+                    if upload.status_code == 200:
+                        url = upload.json().get("data", {}).get("url", "")
+                        url = url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
+                        if url:
+                            print(f"✅ Stable URL: {url}")
+                            return url
+                except Exception as ue:
+                    print(f"Upload error: {ue}")
+                # tmpfiles failed - return direct poll URL
+                return poll_url
+
+            elif resp.status_code == 429:
+                print(f"Rate limited! Waiting longer...")
+                time.sleep(15)
+
         except Exception as e:
             print(f"Attempt {i+1} error: {e}")
-            time.sleep(2)
-    
+
     print("All attempts failed!")
     return None
 def needs_voice_reply(message):
@@ -955,6 +978,7 @@ def verify_webhook():
 
 # Track processed message IDs to prevent duplicate processing
 processed_message_ids = set()
+processing_message_ids = set()  # Currently being processed - prevents duplicate processing
 
 @app.route("/webhook", methods=["POST"])
 def handle_webhook():
@@ -981,11 +1005,17 @@ def handle_webhook():
                 if mid and mid in processed_message_ids:
                     print(f"Skipping duplicate message: {mid}")
                     continue
+                if mid and mid in processing_message_ids:
+                    print(f"Skipping - already processing: {mid}")
+                    continue
                 if mid:
                     processed_message_ids.add(mid)
-                    # Keep set small - remove old IDs
+                    processing_message_ids.add(mid)
+                    # Keep sets small
                     if len(processed_message_ids) > 100:
                         processed_message_ids.clear()
+                    if len(processing_message_ids) > 100:
+                        processing_message_ids.clear()
 
                 message_text = message.get("text", "")
                 attachments = message.get("attachments", [])
