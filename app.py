@@ -469,14 +469,50 @@ def handle_voice_message(sender_id, audio_url):
 # IMAGE GENERATION - Pollinations AI (Free, No API Key!)
 # ============================================================
 def generate_image(prompt):
-    """Generate image from text - Pollinations AI (FREE, No API Key!)"""
-    import urllib.parse
+    """
+    Generate image using Pollinations AI.
+    Downloads first to ensure image is ready before sending to Instagram!
+    """
+    import urllib.parse, base64 as b64, tempfile, os as _os
     clean_prompt = prompt.strip()
     encoded = urllib.parse.quote(clean_prompt)
-    image_url = f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true"
-    print(f"Prompt: {clean_prompt}")
-    print(f"Image URL: {image_url}")
-    return image_url
+    pollinations_url = f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true&seed=42&enhance=true"
+    print(f"Generating image for: {clean_prompt}")
+
+    try:
+        # Download image first - ensures it is fully generated!
+        print("Downloading image from Pollinations...")
+        resp = requests.get(pollinations_url, timeout=60)
+        print(f"Pollinations status: {resp.status_code}, size: {len(resp.content)} bytes")
+
+        if resp.status_code == 200 and len(resp.content) > 5000:
+            # Upload to tmpfiles for stable URL Instagram can load fast
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+                tmp.write(resp.content)
+                tmp_path = tmp.name
+
+            with open(tmp_path, "rb") as f:
+                upload = requests.post(
+                    "https://tmpfiles.org/api/v1/upload",
+                    files={"file": ("image.jpg", f, "image/jpeg")},
+                    timeout=30
+                )
+            _os.remove(tmp_path)
+
+            print(f"tmpfiles status: {upload.status_code}")
+            if upload.status_code == 200:
+                url = upload.json().get("data", {}).get("url", "")
+                url = url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
+                if url:
+                    print(f"Final image URL: {url}")
+                    return url
+
+    except Exception as e:
+        print(f"Image download/upload error: {e}")
+
+    # Fallback to direct URL
+    print("Using direct Pollinations URL")
+    return pollinations_url
 
 def needs_voice_reply(message):
     """
