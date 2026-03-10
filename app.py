@@ -468,60 +468,67 @@ def handle_voice_message(sender_id, audio_url):
 # ============================================================
 # IMAGE GENERATION - Pollinations AI (Free, No API Key!)
 # ============================================================
+def upload_to_imgbb(img_bytes):
+    """Upload image bytes to imgbb and return public URL"""
+    import base64 as b64
+    try:
+        IMGBB_KEY = os.environ.get("IMGBB_API_KEY", "")
+        if not IMGBB_KEY:
+            print("No IMGBB_API_KEY set!")
+            return None
+        img_b64 = b64.b64encode(img_bytes).decode("utf-8")
+        upload = requests.post(
+            "https://api.imgbb.com/1/upload",
+            data={"key": IMGBB_KEY, "image": img_b64},
+            timeout=30
+        )
+        print(f"imgbb status: {upload.status_code}")
+        if upload.status_code == 200:
+            url = upload.json()["data"]["url"]
+            print(f"✅ imgbb URL: {url}")
+            return url
+    except Exception as e:
+        print(f"imgbb upload error: {e}")
+    return None
+
 def generate_image(prompt):
     """
-    Generate image using Pollinations AI with proper rate limit handling.
-    Waits longer between retries to avoid 429 rate limiting.
+    Generate image using Pollinations AI.
+    Downloads image then uploads to imgbb for stable Instagram URL.
     """
-    import urllib.parse, time, tempfile, os as _os
+    import urllib.parse, time
     clean_prompt = prompt.strip()
     encoded = urllib.parse.quote(clean_prompt)
 
     attempts = [
         f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true&model=flux",
         f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true&model=turbo",
-        f"https://image.pollinations.ai/prompt/{encoded}?width=512&height=512&nologo=true",
+        f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true",
     ]
 
     for i, poll_url in enumerate(attempts):
         try:
-            wait = i * 10  # 0s, 10s, 20s between attempts
-            if wait > 0:
-                print(f"Waiting {wait}s before attempt {i+1}...")
-                time.sleep(wait)
+            if i > 0:
+                print(f"Waiting 5s before attempt {i+1}...")
+                time.sleep(5)
 
             print(f"Attempt {i+1}: {poll_url}")
-            resp = requests.get(poll_url, timeout=90)
+            resp = requests.get(poll_url, timeout=60)
             print(f"Status: {resp.status_code}, Size: {len(resp.content)} bytes")
 
             if resp.status_code == 200 and len(resp.content) > 5000:
-                print(f"✅ Image downloaded on attempt {i+1}!")
-                # Upload to tmpfiles for stable Instagram URL
-                try:
-                    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-                        tmp.write(resp.content)
-                        tmp_path = tmp.name
-                    with open(tmp_path, "rb") as f:
-                        upload = requests.post(
-                            "https://tmpfiles.org/api/v1/upload",
-                            files={"file": ("image.jpg", f, "image/jpeg")},
-                            timeout=30
-                        )
-                    _os.remove(tmp_path)
-                    if upload.status_code == 200:
-                        url = upload.json().get("data", {}).get("url", "")
-                        url = url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
-                        if url:
-                            print(f"✅ Stable URL: {url}")
-                            return url
-                except Exception as ue:
-                    print(f"Upload error: {ue}")
-                # tmpfiles failed - return direct poll URL
+                print(f"✅ Image downloaded!")
+                # Upload to imgbb for stable URL
+                stable_url = upload_to_imgbb(resp.content)
+                if stable_url:
+                    return stable_url
+                # imgbb failed - return direct URL
+                print("imgbb failed, using direct Pollinations URL")
                 return poll_url
 
             elif resp.status_code == 429:
-                print(f"Rate limited! Waiting longer...")
-                time.sleep(15)
+                print(f"Rate limited, waiting 10s...")
+                time.sleep(10)
 
         except Exception as e:
             print(f"Attempt {i+1} error: {e}")
