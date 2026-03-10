@@ -454,35 +454,13 @@ def handle_voice_message(sender_id, audio_url):
 # ============================================================
 # IMAGE GENERATION - Pollinations AI (Free, No API Key!)
 # ============================================================
-def enhance_prompt(prompt):
-    """
-    Enhance user prompt for better image quality.
-    Adds quality keywords if not already present.
-    """
-    p = prompt.lower()
-    # Only add quality words if user didn't specify style
-    style_words = ["realistic", "cartoon", "watercolor", "oil painting",
-                   "sketch", "anime", "3d", "photorealistic", "digital art",
-                   "cinematic", "fantasy", "minimalist"]
-    has_style = any(w in p for w in style_words)
-
-    if not has_style:
-        # Add quality boosters for better output
-        enhanced = f"{prompt}, highly detailed, high quality, 4k"
-    else:
-        enhanced = prompt
-
-    return enhanced
-
 def generate_image(prompt):
     """Generate image from text - Pollinations AI (FREE, No API Key!)"""
     import urllib.parse
     clean_prompt = prompt.strip()
-    enhanced = enhance_prompt(clean_prompt)
-    encoded = urllib.parse.quote(enhanced)
-    image_url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true"
+    encoded = urllib.parse.quote(clean_prompt)
+    image_url = f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true"
     print(f"Prompt: {clean_prompt}")
-    print(f"Enhanced: {enhanced}")
     print(f"Image URL: {image_url}")
     return image_url
 
