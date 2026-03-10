@@ -454,13 +454,36 @@ def handle_voice_message(sender_id, audio_url):
 # ============================================================
 # IMAGE GENERATION - Pollinations AI (Free, No API Key!)
 # ============================================================
+def enhance_prompt(prompt):
+    """
+    Enhance user prompt for better image quality.
+    Adds quality keywords if not already present.
+    """
+    p = prompt.lower()
+    # Only add quality words if user didn't specify style
+    style_words = ["realistic", "cartoon", "watercolor", "oil painting",
+                   "sketch", "anime", "3d", "photorealistic", "digital art",
+                   "cinematic", "fantasy", "minimalist"]
+    has_style = any(w in p for w in style_words)
+
+    if not has_style:
+        # Add quality boosters for better output
+        enhanced = f"{prompt}, highly detailed, high quality, 4k"
+    else:
+        enhanced = prompt
+
+    return enhanced
+
 def generate_image(prompt):
-    """Generate image from text - FREE, no API key needed!"""
+    """Generate image from text - Pollinations AI (FREE, No API Key!)"""
     import urllib.parse
     clean_prompt = prompt.strip()
-    encoded = urllib.parse.quote(clean_prompt)
-    image_url = f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true"
-    print(f"Image URL generated: {image_url}")
+    enhanced = enhance_prompt(clean_prompt)
+    encoded = urllib.parse.quote(enhanced)
+    image_url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true"
+    print(f"Prompt: {clean_prompt}")
+    print(f"Enhanced: {enhanced}")
+    print(f"Image URL: {image_url}")
     return image_url
 
 def needs_voice_reply(message):
@@ -535,21 +558,29 @@ def needs_image_generation(message):
 
 def extract_image_prompt(message):
     """Extract the actual subject from user image request"""
-    m = message.lower()
+    import re
     remove_words = [
+        # English - longest first to avoid partial matches
+        "create image for", "generate image for", "make image for",
         "create image of", "generate image of", "make image of",
+        "create photo for", "generate photo for", "make photo for",
         "create photo of", "generate photo of", "make photo of",
         "create a picture of", "make a picture of", "generate a picture of",
-        "image of", "photo of", "picture of",
+        "create a picture for", "make a picture for",
+        "image for", "image of", "photo for", "photo of", "picture of",
         "draw a", "draw me a", "draw me", "draw",
         "create a", "generate a", "make a",
         "create", "generate", "make",
+        # Hindi/Gujarati
         "image banao", "photo banao", "tasvir banao",
         "image banana", "photo banana",
+        # Cleanup leftover words
+        "image", "photo", "picture",
     ]
-    prompt = message
+    prompt = message.strip()
     for word in sorted(remove_words, key=len, reverse=True):
-        prompt = prompt.lower().replace(word, "").strip()
+        # Case insensitive replace at start or anywhere
+        prompt = re.sub(re.escape(word), "", prompt, flags=re.IGNORECASE).strip()
     return prompt if prompt else message
 
 def send_image_dm(recipient_id, image_url, caption=""):
