@@ -468,76 +468,43 @@ def handle_voice_message(sender_id, audio_url):
 # ============================================================
 # IMAGE GENERATION - Pollinations AI (Free, No API Key!)
 # ============================================================
-def upload_image_bytes(img_bytes):
-    """Upload image bytes to tmpfiles and return public URL"""
-    import tempfile, os as _os
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-            tmp.write(img_bytes)
-            tmp_path = tmp.name
-        with open(tmp_path, "rb") as f:
-            upload = requests.post(
-                "https://tmpfiles.org/api/v1/upload",
-                files={"file": ("image.jpg", f, "image/jpeg")},
-                timeout=30
-            )
-        _os.remove(tmp_path)
-        print(f"tmpfiles status: {upload.status_code}")
-        if upload.status_code == 200:
-            url = upload.json().get("data", {}).get("url", "")
-            url = url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
-            if url:
-                print(f"Uploaded URL: {url}")
-                return url
-    except Exception as e:
-        print(f"Upload error: {e}")
-    return None
-
 def generate_image(prompt):
     """
-    Generate image - tries multiple providers until one works!
-    Provider 1: Pollinations (model=flux)
-    Provider 2: Pollinations (model=turbo)
-    Provider 3: Pollinations (different seed)
+    Generate image using Pollinations AI.
+    Retries up to 5 times if server busy (500 error).
+    No upload needed - direct URL works with Instagram!
     """
-    import urllib.parse
+    import urllib.parse, time
     clean_prompt = prompt.strip()
     encoded = urllib.parse.quote(clean_prompt)
-    print(f"Generating image for: {clean_prompt}")
-
-    # Try multiple Pollinations models/seeds
-    urls_to_try = [
-        f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true&model=flux&seed=1",
-        f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true&model=turbo&seed=2",
+    
+    # Try different seeds/models on each retry
+    attempts = [
+        f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true&seed=1",
+        f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true&seed=42",
         f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true&seed=99",
+        f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true&seed=7",
         f"https://image.pollinations.ai/prompt/{encoded}?nologo=true",
     ]
-
-    for i, poll_url in enumerate(urls_to_try):
+    
+    for i, url in enumerate(attempts):
         try:
-            print(f"Trying provider {i+1}: {poll_url}")
-            resp = requests.get(poll_url, timeout=60)
+            print(f"Attempt {i+1}: {url}")
+            resp = requests.get(url, timeout=60)
             print(f"Status: {resp.status_code}, Size: {len(resp.content)} bytes")
-
+            
             if resp.status_code == 200 and len(resp.content) > 5000:
-                print("Image downloaded! Uploading to tmpfiles...")
-                stable_url = upload_image_bytes(resp.content)
-                if stable_url:
-                    return stable_url
-                else:
-                    # tmpfiles failed - return direct URL (image IS generated)
-                    print("tmpfiles failed, using direct URL")
-                    return poll_url
+                print(f"✅ Image ready on attempt {i+1}!")
+                return url  # Direct URL works - Instagram loads it fine!
             else:
-                print(f"Provider {i+1} failed, trying next...")
-
+                print(f"Attempt {i+1} failed, waiting 3s...")
+                time.sleep(3)
         except Exception as e:
-            print(f"Provider {i+1} error: {e}, trying next...")
-
-    # All failed
-    print("All providers failed!")
+            print(f"Attempt {i+1} error: {e}")
+            time.sleep(2)
+    
+    print("All attempts failed!")
     return None
-
 def needs_voice_reply(message):
     """
     Use Groq AI to detect if user wants a voice reply.
