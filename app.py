@@ -2,8 +2,22 @@ import os
 import json
 import requests
 import base64
+import sys
 from flask import Flask, request, jsonify
 from datetime import datetime, timezone, timedelta
+
+# Pre-check all required packages on startup
+try:
+    from gtts import gTTS
+    print("gtts: OK")
+except ImportError as e:
+    print(f"gtts MISSING: {e}")
+
+try:
+    from ddgs import DDGS
+    print("ddgs: OK")
+except ImportError as e:
+    print(f"ddgs MISSING: {e}")
 
 app = Flask(__name__)
 
