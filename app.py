@@ -493,45 +493,62 @@ def upload_to_imgbb(img_bytes):
 
 def generate_image(prompt):
     """
-    Generate image using Pollinations AI.
-    Downloads image then uploads to imgbb for stable Instagram URL.
+    Generate image using Hugging Face (primary) + Pollinations (fallback).
+    Uploads to imgbb for stable Instagram URL.
     """
     import urllib.parse, time
     clean_prompt = prompt.strip()
-    encoded = urllib.parse.quote(clean_prompt)
+    print(f"Generating image: {clean_prompt}")
 
-    attempts = [
+    HF_KEY = os.environ.get("HF_API_KEY", "")
+
+    # ── PRIMARY: Hugging Face (stable diffusion) ──
+    if HF_KEY:
+        hf_models = [
+            "stabilityai/stable-diffusion-xl-base-1.0",
+            "runwayml/stable-diffusion-v1-5",
+        ]
+        for model in hf_models:
+            try:
+                print(f"Trying HuggingFace model: {model}")
+                resp = requests.post(
+                    f"https://api-inference.huggingface.co/models/{model}",
+                    headers={"Authorization": f"Bearer {HF_KEY}"},
+                    json={"inputs": clean_prompt},
+                    timeout=60
+                )
+                print(f"HF status: {resp.status_code}, size: {len(resp.content)}")
+                if resp.status_code == 200 and len(resp.content) > 5000:
+                    print("✅ HuggingFace image ready!")
+                    stable_url = upload_to_imgbb(resp.content)
+                    if stable_url:
+                        return stable_url
+            except Exception as e:
+                print(f"HF error: {e}")
+
+    # ── FALLBACK: Pollinations ──
+    encoded = urllib.parse.quote(clean_prompt)
+    poll_urls = [
         f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true&model=flux",
         f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true&model=turbo",
         f"https://image.pollinations.ai/prompt/{encoded}?width=800&height=800&nologo=true",
     ]
-
-    for i, poll_url in enumerate(attempts):
+    for i, poll_url in enumerate(poll_urls):
         try:
             if i > 0:
-                print(f"Waiting 5s before attempt {i+1}...")
                 time.sleep(5)
-
-            print(f"Attempt {i+1}: {poll_url}")
+            print(f"Pollinations attempt {i+1}")
             resp = requests.get(poll_url, timeout=60)
-            print(f"Status: {resp.status_code}, Size: {len(resp.content)} bytes")
-
+            print(f"Status: {resp.status_code}, Size: {len(resp.content)}")
             if resp.status_code == 200 and len(resp.content) > 5000:
-                print(f"✅ Image downloaded!")
-                # Upload to imgbb for stable URL
                 stable_url = upload_to_imgbb(resp.content)
                 if stable_url:
                     return stable_url
-                # imgbb failed - return direct URL
-                print("imgbb failed, using direct Pollinations URL")
                 return poll_url
-
             elif resp.status_code == 429:
-                print(f"Rate limited, waiting 10s...")
                 time.sleep(10)
-
         except Exception as e:
-            print(f"Attempt {i+1} error: {e}")
+            print(f"Pollinations error: {e}")
 
     print("All attempts failed!")
     return None
