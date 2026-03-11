@@ -678,13 +678,11 @@ def extract_image_prompt(message):
     return prompt if prompt else message
 
 def send_image_dm(recipient_id, image_url, caption=""):
-    """Send generated image to Instagram user"""
+    """Send generated image to Instagram user via attachment upload API"""
     try:
-        url = f"https://graph.instagram.com/v21.0/{INSTAGRAM_ID}/messages"
-
-        # Send image
-        payload = {
-            "recipient": {"id": recipient_id},
+        # Step 1: Upload image to Instagram first
+        upload_url = f"https://graph.instagram.com/v21.0/{INSTAGRAM_ID}/message_attachments"
+        upload_payload = {
             "message": {
                 "attachment": {
                     "type": "image",
@@ -696,18 +694,59 @@ def send_image_dm(recipient_id, image_url, caption=""):
             },
             "access_token": INSTAGRAM_ACCESS_TOKEN
         }
-        response = requests.post(url, json=payload)
-        print(f"Image DM status: {response.status_code}")
-        print(f"Image DM response: {response.text}")
+        upload_resp = requests.post(upload_url, json=upload_payload)
+        print(f"Attachment upload status: {upload_resp.status_code}")
+        print(f"Attachment upload response: {upload_resp.text}")
 
-        # Send caption after image
+        attachment_id = upload_resp.json().get("attachment_id")
+
+        if attachment_id:
+            # Step 2: Send using attachment_id
+            url = f"https://graph.instagram.com/v21.0/{INSTAGRAM_ID}/messages"
+            payload = {
+                "recipient": {"id": recipient_id},
+                "message": {
+                    "attachment": {
+                        "type": "image",
+                        "payload": {
+                            "attachment_id": attachment_id
+                        }
+                    }
+                },
+                "access_token": INSTAGRAM_ACCESS_TOKEN
+            }
+            response = requests.post(url, json=payload)
+            print(f"Image DM status: {response.status_code}")
+            print(f"Image DM response: {response.text}")
+        else:
+            # Fallback: send direct URL
+            url = f"https://graph.instagram.com/v21.0/{INSTAGRAM_ID}/messages"
+            payload = {
+                "recipient": {"id": recipient_id},
+                "message": {
+                    "attachment": {
+                        "type": "image",
+                        "payload": {
+                            "url": image_url,
+                            "is_reusable": True
+                        }
+                    }
+                },
+                "access_token": INSTAGRAM_ACCESS_TOKEN
+            }
+            response = requests.post(url, json=payload)
+            print(f"Image DM fallback status: {response.status_code}")
+            print(f"Image DM fallback response: {response.text}")
+
+        # Send caption
         if caption:
             send_dm_reply(recipient_id, caption)
 
         return response
+
     except Exception as e:
         print(f"Send image DM error: {e}")
-        send_dm_reply(recipient_id, f"Your image: {image_url}")
+        send_dm_reply(recipient_id, f"Your image is ready! View here: {image_url}")
 
 # ============================================================
 # WEB SEARCH
@@ -1168,6 +1207,30 @@ def handle_webhook():
         print(f"Webhook error: {e}")
 
     return jsonify({"status": "ok"}), 200
+
+@app.route("/chat", methods=["POST", "OPTIONS"])
+def website_chat():
+    """Website chatbot endpoint - same AI as Instagram bot!"""
+    # Handle CORS for GitHub Pages
+    if request.method == "OPTIONS":
+        response = jsonify({"status": "ok"})
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        return response, 200
+    try:
+        data = request.json
+        message = data.get("message", "")
+        if not message:
+            return jsonify({"reply": "Please send a message!"}), 400
+        print(f"Website chat: {message}")
+        reply = get_ai_reply(message)
+        response = jsonify({"reply": reply})
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        return response, 200
+    except Exception as e:
+        print(f"Website chat error: {e}")
+        return jsonify({"reply": "Sorry, something went wrong!"}), 500
 
 @app.route("/", methods=["GET"])
 def home():
