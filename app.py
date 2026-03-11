@@ -678,11 +678,13 @@ def extract_image_prompt(message):
     return prompt if prompt else message
 
 def send_image_dm(recipient_id, image_url, caption=""):
-    """Send generated image to Instagram user via attachment upload API"""
+    """Send generated image - tries attachment first, falls back to link"""
     try:
-        # Step 1: Upload image to Instagram first
-        upload_url = f"https://graph.instagram.com/v21.0/{INSTAGRAM_ID}/message_attachments"
-        upload_payload = {
+        url = f"https://graph.instagram.com/v21.0/{INSTAGRAM_ID}/messages"
+
+        # Try sending as image attachment
+        payload = {
+            "recipient": {"id": recipient_id},
             "message": {
                 "attachment": {
                     "type": "image",
@@ -694,63 +696,24 @@ def send_image_dm(recipient_id, image_url, caption=""):
             },
             "access_token": INSTAGRAM_ACCESS_TOKEN
         }
-        upload_resp = requests.post(upload_url, json=upload_payload)
-        print(f"Attachment upload status: {upload_resp.status_code}")
-        print(f"Attachment upload response: {upload_resp.text}")
+        response = requests.post(url, json=payload)
+        print(f"Image DM status: {response.status_code}")
+        print(f"Image DM response: {response.text}")
 
-        attachment_id = upload_resp.json().get("attachment_id")
-
-        if attachment_id:
-            # Step 2: Send using attachment_id
-            url = f"https://graph.instagram.com/v21.0/{INSTAGRAM_ID}/messages"
-            payload = {
-                "recipient": {"id": recipient_id},
-                "message": {
-                    "attachment": {
-                        "type": "image",
-                        "payload": {
-                            "attachment_id": attachment_id
-                        }
-                    }
-                },
-                "access_token": INSTAGRAM_ACCESS_TOKEN
-            }
-            response = requests.post(url, json=payload)
-            print(f"Image DM status: {response.status_code}")
-            print(f"Image DM response: {response.text}")
+        if response.status_code == 200:
+            if caption:
+                send_dm_reply(recipient_id, caption)
         else:
-            # Fallback: send direct URL
-            url = f"https://graph.instagram.com/v21.0/{INSTAGRAM_ID}/messages"
-            payload = {
-                "recipient": {"id": recipient_id},
-                "message": {
-                    "attachment": {
-                        "type": "image",
-                        "payload": {
-                            "url": image_url,
-                            "is_reusable": True
-                        }
-                    }
-                },
-                "access_token": INSTAGRAM_ACCESS_TOKEN
-            }
-            response = requests.post(url, json=payload)
-            print(f"Image DM fallback status: {response.status_code}")
-            print(f"Image DM fallback response: {response.text}")
-
-        # Send caption
-        if caption:
-            send_dm_reply(recipient_id, caption)
+            # Fallback: send as clickable link in text
+            print("Image attachment failed, sending as link...")
+            msg = caption + "\n\n🖼 View your image here:\n" + image_url
+            send_dm_reply(recipient_id, msg)
 
         return response
-
     except Exception as e:
         print(f"Send image DM error: {e}")
-        send_dm_reply(recipient_id, f"Your image is ready! View here: {image_url}")
+        send_dm_reply(recipient_id, "🖼 Your image is ready! View here:\n" + image_url)
 
-# ============================================================
-# WEB SEARCH
-# ============================================================
 def web_search(query, num=4):
     try:
         from ddgs import DDGS
