@@ -504,11 +504,38 @@ def generate_image(prompt):
 
     # ── PRIMARY: Hugging Face (stable diffusion) ──
     if HF_KEY:
+            # Try Pixazo free API (no API key needed!)
+        pixazo_urls = [
+            "https://api.pixazo.ai/v1/generate",
+        ]
+        for px_url in pixazo_urls:
+            try:
+                print(f"Trying Pixazo: {px_url}")
+                resp = requests.post(
+                    px_url,
+                    json={"prompt": clean_prompt, "width": 800, "height": 800},
+                    timeout=60
+                )
+                print(f"Pixazo status: {resp.status_code}")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    img_url = data.get("url") or data.get("image_url") or data.get("output")
+                    if img_url:
+                        print(f"✅ Pixazo image URL: {img_url}")
+                        # Download and upload to imgbb
+                        img_resp = requests.get(img_url, timeout=30)
+                        if img_resp.status_code == 200 and len(img_resp.content) > 5000:
+                            stable_url = upload_to_imgbb(img_resp.content)
+                            if stable_url:
+                                return stable_url
+                        return img_url
+            except Exception as e:
+                print(f"Pixazo error: {e}")
+
+        # Try HuggingFace if key available
         hf_models = [
             "black-forest-labs/FLUX.1-dev",
-            "black-forest-labs/FLUX.1-schnell",
             "stabilityai/stable-diffusion-2-1",
-            "CompVis/stable-diffusion-v1-4",
         ]
         for model in hf_models:
             try:
@@ -520,35 +547,16 @@ def generate_image(prompt):
                     timeout=90
                 )
                 print(f"HF status: {resp.status_code}, size: {len(resp.content)}")
-
                 if resp.status_code == 200 and len(resp.content) > 5000:
-                    print(f"✅ HF image ready from {model}!")
+                    print(f"✅ HF image ready!")
                     stable_url = upload_to_imgbb(resp.content)
                     if stable_url:
                         return stable_url
-
-                elif resp.status_code == 503:
-                    # Model warming up - wait and retry
-                    import time
-                    print("Model loading, waiting 15s...")
-                    time.sleep(15)
-                    resp2 = requests.post(
-                        f"https://api-inference.huggingface.co/models/{model}",
-                        headers={"Authorization": f"Bearer {HF_KEY}"},
-                        json={"inputs": clean_prompt},
-                        timeout=90
-                    )
-                    if resp2.status_code == 200 and len(resp2.content) > 5000:
-                        stable_url = upload_to_imgbb(resp2.content)
-                        if stable_url:
-                            return stable_url
-
                 elif resp.status_code in [404, 410]:
-                    print(f"Model {model} not available, trying next...")
+                    print(f"Model deprecated, trying next...")
                     continue
-
             except Exception as e:
-                print(f"HF error {model}: {e}")
+                print(f"HF error: {e}")
 
     # ── FALLBACK: Pollinations ──
     encoded = urllib.parse.quote(clean_prompt)
